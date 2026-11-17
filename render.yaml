@@ -13,7 +13,7 @@ services:
       - key: ENABLE_DEMO_ACCOUNTS
         value: "false"
       - key: CORS_ALLOWED_ORIGINS
-        value: https://jansahay.onrender.com
+        value: https://jansahay-0eh4.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEY
