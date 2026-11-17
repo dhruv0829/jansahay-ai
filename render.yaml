@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: jansahay
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: ENABLE_DEMO_ACCOUNTS
+        value: "false"
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://jansahay.onrender.com
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

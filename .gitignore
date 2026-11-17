@@ -1,0 +1,59 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables / API keys
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / editors
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Frontend build
+dist/
+.vite/
+
+# Local database
+*.db
+*.sqlite
+*.sqlite3
+
+# Local uploads and deployment state
+backend/storage/
+backend/dataset_import_report.json
+.render/
+
+# Temporary files
+*.tmp
+*.temp
