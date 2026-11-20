@@ -194,7 +194,7 @@ export const DocumentCenterPage = () => {
           
           <div className="flex items-center justify-center gap-2 text-xs text-slate-500 pt-1">
             <Lock className="w-3.5 h-3.5" />
-            <span>Private and encrypted storage. Only used to compute indicative scheme eligibility.</span>
+            <span>Uploads are stored by JanSahay for text extraction and eligibility review. Review detected values before confirming them.</span>
           </div>
         </div>
       </div>

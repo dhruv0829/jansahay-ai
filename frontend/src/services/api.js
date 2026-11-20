@@ -1,6 +1,26 @@
 const API_BASE = '/api';
 
 const apiFetch = (input, init = {}) => fetch(input, { credentials: 'include', ...init });
+const adminApiFetch = async (input, init = {}, timeoutMs = 15000) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await apiFetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Admin API did not respond within 15 seconds. Check the backend service and retry.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const adminResponseError = async (res, action) => {
+  const payload = await res.json().catch(() => ({}));
+  const detail = typeof payload.detail === 'string' ? `: ${payload.detail}` : '';
+  return new Error(`${action} (HTTP ${res.status})${detail}`);
+};
 
 const getHeaders = (isMultipart = false) => {
   const token = import.meta.env.DEV ? localStorage.getItem('jansahay_token') : null;
@@ -99,13 +119,28 @@ export const api = {
 
   // Chat
   sendMessage: async (message, sessionId = 'default-session', language = 'en') => {
-    const res = await apiFetch(`${API_BASE}/chat`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ message, session_id: sessionId, language }),
-    });
-    if (!res.ok) throw new Error('Failed to send chat message');
-    return res.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await apiFetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ message, session_id: sessionId, language }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.detail || 'Failed to send chat message');
+      }
+      return await res.json();
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('The JanSahay service did not respond within 20 seconds. Please try again.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   },
   getChatHistory: async (sessionId = 'default-session') => {
     const res = await apiFetch(`${API_BASE}/chat/history/${sessionId}`, {
@@ -158,44 +193,71 @@ export const api = {
 
   // Admin Portal
   getAdminStats: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/stats`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch admin statistics');
+    const res = await adminApiFetch(`${API_BASE}/admin/stats`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch admin statistics');
     return res.json();
   },
   getAdminQualityMetrics: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/quality-metrics`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch quality metrics');
+    const res = await adminApiFetch(`${API_BASE}/admin/quality-metrics`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch quality metrics');
     return res.json();
   },
   getAdminConflicts: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/conflicts`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch scheme conflicts');
+    const res = await adminApiFetch(`${API_BASE}/admin/conflicts`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch scheme conflicts');
     return res.json();
   },
   getAdminAuditLogs: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/audit-logs`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch audit logs');
+    const res = await adminApiFetch(`${API_BASE}/admin/audit-logs`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch audit logs');
     return res.json();
   },
   reimportDataset: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/reimport`, {
+    const res = await adminApiFetch(`${API_BASE}/admin/reimport`, {
       method: 'POST',
       headers: getHeaders(),
-    });
-    if (!res.ok) throw new Error('Failed to trigger dataset re-import');
+    }, 120000);
+    if (!res.ok) throw await adminResponseError(res, 'Failed to trigger dataset re-import');
     return res.json();
   },
   getAdminSchemes: async () => {
-    const res = await apiFetch(`${API_BASE}/admin/schemes`, { headers: getHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch admin schemes');
+    const res = await adminApiFetch(`${API_BASE}/admin/schemes`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch admin schemes');
+    return res.json();
+  },
+  createAdminScheme: async (data) => {
+    const res = await adminApiFetch(`${API_BASE}/admin/schemes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      throw await adminResponseError(res, 'Failed to create scheme');
+    }
+    return res.json();
+  },
+  getAdminUsers: async () => {
+    const res = await adminApiFetch(`${API_BASE}/admin/users`, { headers: getHeaders() });
+    if (!res.ok) throw await adminResponseError(res, 'Failed to fetch user accounts');
+    return res.json();
+  },
+  updateAdminUserAccess: async (userId, data) => {
+    const res = await adminApiFetch(`${API_BASE}/admin/users/${userId}/access`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      throw await adminResponseError(res, 'Failed to update account access');
+    }
     return res.json();
   },
   toggleVerifyScheme: async (schemeId) => {
-    const res = await apiFetch(`${API_BASE}/admin/schemes/${schemeId}/verify`, {
+    const res = await adminApiFetch(`${API_BASE}/admin/schemes/${schemeId}/verify`, {
       method: 'POST',
       headers: getHeaders(),
     });
-    if (!res.ok) throw new Error('Failed to update verification');
+    if (!res.ok) throw await adminResponseError(res, 'Failed to update verification');
     return res.json();
   },
 };

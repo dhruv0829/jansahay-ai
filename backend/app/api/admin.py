@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from datetime import date
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,6 +15,7 @@ from app.schemas.scheme import SchemeOut, SchemeDetailOut
 from app.services.auth_service import get_admin_user, get_optional_current_user
 from app.database.import_dataset import run_import
 from app.services.rag_service import RAGRetriever
+from app.schemas.admin import AdminSchemeCreate, AdminUserAccessUpdate
 
 router = APIRouter(prefix="/admin", tags=["Admin Portal"])
 
@@ -155,6 +157,74 @@ def get_admin_schemes(current_user: User = Depends(get_admin_user), db: Session 
         for s in schemes
     ]
 
+@router.get("/users")
+def get_admin_users(current_user: User = Depends(get_admin_user), db: Session = Depends(get_db)):
+    """List account details needed to manage portal access; never return credentials."""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [
+        {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        }
+        for user in users
+    ]
+
+@router.patch("/users/{user_id}/access")
+def update_user_access(
+    user_id: int,
+    update: AdminUserAccessUpdate,
+    current_user: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    """Grant/revoke admin access or activate/deactivate a user account."""
+    changes = update.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=422, detail="Provide is_admin and/or is_active.")
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot change your own administrator access or account status.")
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    removes_active_admin = target.is_admin and target.is_active and (
+        changes.get("is_admin") is False or changes.get("is_active") is False
+    )
+    if removes_active_admin:
+        other_active_admin = db.query(User).filter(
+            User.is_admin == True,
+            User.is_active == True,
+            User.id != target.id,
+        ).first()
+        if not other_active_admin:
+            raise HTTPException(status_code=400, detail="The last active administrator cannot be removed or deactivated.")
+
+    before = {"is_admin": target.is_admin, "is_active": target.is_active}
+    for field, value in changes.items():
+        setattr(target, field, value)
+    after = {"is_admin": target.is_admin, "is_active": target.is_active}
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action="USER_ACCESS_UPDATED",
+        entity_type="User",
+        entity_id=str(target.id),
+        details=json.dumps({"email": target.email, "before": before, "after": after}),
+    ))
+    db.commit()
+    db.refresh(target)
+    return {
+        "id": target.id,
+        "email": target.email,
+        "full_name": target.full_name,
+        "is_active": target.is_active,
+        "is_admin": target.is_admin,
+        "message": "User access updated.",
+    }
+
 @router.post("/schemes/{scheme_id}/verify")
 def toggle_scheme_verification(
     scheme_id: int,
@@ -167,6 +237,8 @@ def toggle_scheme_verification(
     
     scheme.is_verified = not scheme.is_verified
     scheme.last_verified_date = date.today().isoformat() if scheme.is_verified else None
+    # Only verified schemes should enter public discovery and recommendations.
+    scheme.is_active = scheme.is_verified
     db.commit()
     db.refresh(scheme)
     return {
@@ -178,36 +250,34 @@ def toggle_scheme_verification(
 
 @router.post("/schemes")
 def create_scheme(
-    data: dict,
+    data: AdminSchemeCreate,
     current_user: User = Depends(get_admin_user),
     db: Session = Depends(get_db)
 ):
-    slug = data.get("slug") or data.get("name", "").lower().replace(" ", "-")[:40]
+    payload = data.model_dump()
+    slug = re.sub(r"[^a-z0-9]+", "-", payload["name"].lower()).strip("-")[:140]
+    if not slug:
+        slug = f"scheme-{db.query(Scheme).count() + 1}"
     existing = db.query(Scheme).filter(Scheme.slug == slug).first()
     if existing:
-        slug = f"{slug}-{int(db.query(Scheme).count()) + 1}"
+        raise HTTPException(status_code=409, detail="A scheme with this name already exists.")
 
     scheme = Scheme(
         slug=slug,
-        name=data.get("name"),
-        short_name=data.get("short_name"),
-        department=data.get("department", "Ministry of Public Welfare"),
-        ministry=data.get("ministry", "Government of India"),
-        level=data.get("level", "Central"),
-        applicable_states=data.get("applicable_states", "All"),
-        category=data.get("category", "Social Welfare"),
-        summary=data.get("summary", ""),
-        description=data.get("description", ""),
-        target_beneficiary=data.get("target_beneficiary", "Eligible Citizens"),
-        benefit_type=data.get("benefit_type", "Financial Assistance"),
-        benefit_amount=data.get("benefit_amount", "As per norms"),
-        application_mode=data.get("application_mode", "Online"),
-        official_url=data.get("official_url", "https://www.india.gov.in"),
-        is_active=True,
+        **payload,
+        is_active=False,
         is_verified=False,
         last_verified_date=None
     )
     db.add(scheme)
+    db.flush()
+    db.add(AuditLog(
+        user_id=current_user.id,
+        action="SCHEME_CREATED",
+        entity_type="Scheme",
+        entity_id=str(scheme.id),
+        details=json.dumps({"name": scheme.name, "slug": scheme.slug}),
+    ))
     db.commit()
     db.refresh(scheme)
     return {"message": "Scheme created successfully", "scheme_id": scheme.id, "slug": scheme.slug}

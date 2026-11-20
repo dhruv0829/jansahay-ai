@@ -96,7 +96,7 @@ export const ChatPage = () => {
         {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: "I experienced a temporary issue evaluating your request against the scheme database. Please try again or rephrase your question."
+          content: e.message || "I couldn't get a response from JanSahay right now. Please try again."
         }
       ]);
     } finally {
@@ -293,7 +293,7 @@ export const ChatPage = () => {
               <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce" />
               <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce delay-100" />
               <div className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce delay-200" />
-              <span className="ml-1 font-medium">Retrieving verified scheme evidence & computing eligibility...</span>
+              <span className="ml-1 font-medium">Preparing your answer...</span>
             </div>
           </div>
         )}

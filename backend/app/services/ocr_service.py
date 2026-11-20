@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 class DocumentOCRService:
     """
@@ -38,6 +38,32 @@ class DocumentOCRService:
             except Exception:
                 return ""
 
+        # Extract embedded text from digital PDFs before attempting OCR.
+        if mime_type == "application/pdf":
+            try:
+                from pypdf import PdfReader
+                reader = PdfReader(file_path)
+                pdf_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                if pdf_text.strip():
+                    return pdf_text
+            except Exception:
+                pass
+
+            # Scanned PDFs have no embedded text; render each page and OCR it.
+            try:
+                import pypdfium2 as pdfium
+                import pytesseract
+                pdf_doc = pdfium.PdfDocument(file_path)
+                pages = []
+                for page_index in range(min(len(pdf_doc), 20)):
+                    page = pdf_doc[page_index]
+                    bitmap = page.render(scale=2)
+                    pages.append(pytesseract.image_to_string(bitmap.to_pil(), lang="eng+hin+mar"))
+                pdf_doc.close()
+                return "\n".join(pages).strip()
+            except Exception:
+                return ""
+
         # For images or PDFs
         raw_text = ""
         try:
@@ -46,7 +72,7 @@ class DocumentOCRService:
             # Try pytesseract if installed
             try:
                 import pytesseract
-                raw_text = pytesseract.image_to_string(img)
+                raw_text = pytesseract.image_to_string(img, lang="eng+hin+mar")
             except Exception:
                 raw_text = ""
         except Exception:
