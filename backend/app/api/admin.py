@@ -19,6 +19,16 @@ from app.schemas.admin import AdminSchemeCreate, AdminUserAccessUpdate
 
 router = APIRouter(prefix="/admin", tags=["Admin Portal"])
 
+
+def _parse_audit_details(raw_details: Optional[str]):
+    """Keep legacy/plain-text audit rows from breaking the admin log view."""
+    if not raw_details:
+        return {}
+    try:
+        return json.loads(raw_details)
+    except (TypeError, ValueError):
+        return {"message": raw_details}
+
 @router.get("/stats")
 def get_admin_stats(current_user: User = Depends(get_admin_user), db: Session = Depends(get_db)):
     total = db.query(Scheme).count()
@@ -127,8 +137,8 @@ def get_audit_logs(
             "action": l.action,
             "entity_type": l.entity_type,
             "entity_id": l.entity_id,
-            "details": json.loads(l.details) if l.details else {},
-            "timestamp": l.created_at.isoformat()
+            "details": _parse_audit_details(l.details),
+            "timestamp": l.created_at.isoformat() if l.created_at else None
         }
         for l in logs
     ]
